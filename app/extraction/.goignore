@@ -1,0 +1,2 @@
+# This directory contains standalone executables that should not be compiled as part of the module
+*.go
