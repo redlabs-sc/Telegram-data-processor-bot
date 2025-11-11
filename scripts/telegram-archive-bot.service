@@ -1,0 +1,64 @@
+# Systemd service file for Telegram Archive Bot
+# Copy this file to /etc/systemd/system/ and enable with:
+# sudo cp scripts/telegram-archive-bot.service /etc/systemd/system/
+# sudo systemctl daemon-reload
+# sudo systemctl enable telegram-archive-bot
+# sudo systemctl start telegram-archive-bot
+
+[Unit]
+Description=Telegram Archive Bot with Local Bot API Server
+Documentation=file:///path/to/your/project/USER_GUIDE.md
+After=network.target
+Wants=network.target
+
+[Service]
+Type=forking
+User=redx
+Group=redx
+
+# Working directory (CHANGE THIS to your actual project path)
+WorkingDirectory=/home/redx/Desktop/01_Projects/TG_project/GoLang_bot
+
+# Environment
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=GO111MODULE=on
+
+# Pre-start commands
+ExecStartPre=/bin/bash -c 'if [ ! -f telegram-archive-bot ]; then go build -o telegram-archive-bot .; fi'
+ExecStartPre=/bin/bash -c 'if [ ! -f app/bin/telegram-bot-api ]; then ./scripts/build-native-api.sh; fi'
+ExecStartPre=/bin/bash -c './scripts/start-native-api.sh start'
+
+# Main command
+ExecStart=/bin/bash -c './telegram-archive-bot &'
+
+# Stop commands
+ExecStop=/bin/bash -c './scripts/start-native-api.sh stop'
+ExecStopPost=/bin/bash -c 'pkill -f telegram-archive-bot || true'
+
+# Restart policy
+Restart=always
+RestartSec=10
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=false
+ProtectHome=false
+ProtectSystem=false
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=telegram-archive-bot
+
+# Process management
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStartSec=300
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target

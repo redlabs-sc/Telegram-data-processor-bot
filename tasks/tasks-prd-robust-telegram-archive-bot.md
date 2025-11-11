@@ -1,0 +1,154 @@
+# Tasks for Robust Telegram Archive and Text Processing Bot
+
+## Relevant Files
+
+- `main.go` - Main application entry point with bot integration and graceful shutdown
+- `bot/telegram.go` - Telegram bot client setup, message handling, and API integration
+- `bot/handlers.go` - Command handlers, file processing coordination, and admin commands
+- `bot/auth.go` - Admin authorization middleware and security logging
+- `bot/ratelimit.go` - Telegram API rate limiting, FloodWait handling, and retry logic
+- `bot/notifications.go` - Markdown-formatted notifications with status emojis and inline buttons
+- `workers/download.go` - Download worker with Local Bot API integration, auto-move functionality, and dynamic path detection
+- `workers/extraction.go` - Extraction worker with single-threaded bottleneck and extract.go subprocess orchestration
+- `workers/conversion.go` - Conversion worker for convert.go subprocess orchestration and result processing
+- `pipeline/pipeline.go` - Multi-stage processing pipeline with auto-move monitoring and 3 parallel downloads
+- `pipeline/queue.go` - Worker pool implementation with configurable concurrency and timeout handling
+- `pipeline/priority_queue.go` - Priority-based task queuing system with thread-safe operations
+- `pipeline/coordinator.go` - Pipeline coordinator with integrated auto-move system (no external scripts)
+- `utils/bot_api_path.go` - Dynamic Local Bot API path detection and management system
+- `storage/taskstore.go` - SQLite TaskStore implementation for persistent task management with deduplication
+- `storage/database.go` - Database connection and migration handling with audit_log table
+- `storage/recovery.go` - Enhanced crash recovery system with Local Bot API structure awareness and file recovery
+- `storage/audit.go` - Comprehensive audit logging system for task history and monitoring
+- `utils/files.go` - Comprehensive file management with validation, movement, and directory operations
+- `utils/bot_api_path.go` - Dynamic Local Bot API path detection based on bot token with automatic adaptation
+- `utils/retry.go` - Sophisticated retry logic for file operations and external processes
+- `utils/logging.go` - Structured logging implementation
+- `utils/config.go` - Environment configuration loading and validation
+- `models/task.go` - Task model and status definitions
+- `pipeline/pipeline.go` - Multi-stage processing pipeline coordination
+- `pipeline/queue.go` - Task queuing and worker pool management
+- `monitoring/health.go` - Health monitoring system with component checks and self-diagnostics
+- `monitoring/metrics.go` - Performance metrics collection and aggregation system
+- `monitoring/system.go` - System resource monitoring for Linux environments
+- `monitoring/alerting.go` - Alert management system with rules and Telegram notifications
+- `storage/backup.go` - Database backup and restore functionality with compression and verification
+- `cmd/backup/main.go` - Command-line backup tool for manual database operations
+- `scripts/backup-daily.sh` - Automated daily backup script for deployment use
+- `scripts/restore-emergency.sh` - Emergency database restore script with safety checks
+- `DEPLOYMENT.md` - Comprehensive deployment guide with system requirements and setup procedures
+- `ENVIRONMENT.md` - Complete environment variables documentation and configuration examples
+- `OPERATIONS.md` - Operational runbook for daily maintenance tasks and monitoring procedures
+- `MONITORING.md` - Monitoring and alerting setup guide with multiple monitoring stack options
+- `TROUBLESHOOTING.md` - Comprehensive troubleshooting guide for common issues and emergency recovery
+
+### Notes
+
+- Go testing follows the convention of `*_test.go` files alongside source files
+- Use `go test ./...` to run all tests
+- External dependencies `extract.go` and `convert.go` must remain unchanged in `extraction/` directory
+- **New Architecture**: No external shell scripts - all file movement is integrated into the bot
+- **Dynamic Paths**: Local Bot API directory detection adapts automatically to bot token changes
+- **Auto-Move System**: Built-in file monitoring and movement every 15 seconds
+
+## Tasks
+
+- [x] 1.0 Core Infrastructure Setup [Refer PRD sections 7, 7.1 - Technical Considerations & Folder Structure]
+  - [x] 1.1 Create Go module and project structure with `go mod init`
+  - [x] 1.2 Set up required directory structure: `app/extraction/files/{all,pass,done,errors,nopass,etbanks}`, `data/`, `logs/`, `temp/`
+  - [x] 1.3 Implement environment configuration loading from `.env` file with validation
+  - [x] 1.4 Set up structured logging system with file rotation and console output
+  - [x] 1.5 Create SQLite database schema and migration system in `data/` directory
+  - [x] 1.6 Implement database connection pooling and timeout handling
+- [x] 2.0 Telegram Bot Integration and Authentication [Refer PRD sections 4.7, 6 - Admin Commands & Design Considerations]
+  - [x] 2.1 Set up Telegram bot client using bot token from environment
+  - [x] 2.2 Implement admin authorization middleware using ADMIN_IDS from `.env`
+  - [x] 2.3 Create command router and basic message handling framework
+  - [x] 2.4 Implement `/stats` command showing uptime, file counts, and disk usage
+  - [x] 2.5 Implement `/stop` command for force stopping operations and clearing queues
+  - [x] 2.6 Implement `/cleanup` command for deleting temporary and error files
+  - [x] 2.7 Implement `/exit` command for safe shutdown with task persistence
+  - [x] 2.8 Implement `/commands` command with self-diagnostic dependency checks
+  - [x] 2.9 Add Telegram API rate limiting and FloodWait error handling with automatic retry
+  - [x] 2.10 Create Markdown-formatted notifications with status emojis and inline buttons
+- [x] 3.0 Multi-Stage Processing Pipeline [Refer PRD sections 4.3, 4.1 - Pipeline & Concurrency Requirements]
+  - [x] 3.1 Design and implement worker pool pattern with configurable concurrency limits
+  - [x] 3.2 Create DownloadWorker for file downloads with timeout and retry logic
+  - [x] 3.3 Create ExtractionWorker with single-threaded bottleneck and queue management
+  - [x] 3.4 Create ConversionWorker for orchestrating convert.go subprocess calls
+  - [x] 3.5 Implement task queuing system with priority and status tracking
+  - [x] 3.6 Add pipeline coordination to move files between temp and extraction directories
+  - [x] 3.7 Implement worker timeout handling and graceful shutdown
+- [x] 4.0 Task Management and Persistence [Refer PRD sections 4.2, 4.5 - TaskStore & Crash Recovery]
+  - [x] 4.1 Create Task model with unique IDs and status enumeration (PENDING, DOWNLOADED, COMPLETED, FAILED)
+  - [x] 4.2 Implement SQLite TaskStore with CRUD operations and concurrent access safety
+  - [x] 4.3 Add task status update mechanisms with atomic database transactions
+  - [x] 4.4 Implement crash recovery system to resume incomplete tasks on startup
+  - [x] 4.5 Create task deduplication logic to prevent reprocessing of same files
+  - [x] 4.6 Add task history and audit logging for monitoring and troubleshooting
+- [x] 5.0 File Processing and External Integration [Refer PRD sections 4.4, 7.1 - External Executables & Workflow]
+  - [x] 5.1 Implement file type validation for ZIP, RAR, and TXT files
+  - [x] 5.2 Add file size validation with configurable MAX_FILE_SIZE_MB limit
+  - [x] 5.3 Create file deduplication system using checksums or hashes
+  - [x] 5.4 Implement `/extract` command handler to manually trigger extract.go subprocess on downloaded files
+  - [x] 5.5 Implement `/convert` command handler to manually trigger convert.go subprocess with `-f files/pass output.txt`
+  - [x] 5.6 Add subprocess execution with proper working directory (`app/extraction/`)
+  - [x] 5.7 Implement concurrent extraction queue with admin notifications for queue status
+  - [x] 5.8 Add file movement logic from temp to extraction directories based on pipeline state
+  - [x] 5.9 Create error handling and retry logic for failed file operations
+  - [x] 5.10 Implement cleanup routines for temporary files and failed processing artifacts
+- [x] 6.0 Automatic File Processing and User Stories [Refer PRD sections 3, 4.1 - User Stories & Automatic Processing]
+  - [x] 6.1 Implement automatic file download and storage when files are sent to bot
+  - [x] 6.2 Create file upload handler that immediately creates PENDING tasks in TaskStore
+  - [x] 6.3 Implement automatic download pipeline: File Upload → Download → Store in temp directory
+  - [x] 6.4 Add real-time status notifications for file receipt and download completion
+  - [x] 6.5 Implement task status monitoring for downloaded files awaiting manual processing
+  - [x] 6.6 Ensure `/extract` and `/convert` commands remain manually triggered by admins
+  - [x] 6.7 Create queue management for files waiting for manual extraction/conversion commands
+- [x] 7.0 System Monitoring and Metrics [Refer PRD sections 8 - Success Metrics]
+  - [x] 7.1 Implement application health checks and uptime tracking
+  - [x] 7.2 Add performance metrics collection (processing times, queue lengths, throughput)
+  - [x] 7.3 Create system resource monitoring (CPU, memory, disk usage)
+  - [x] 7.4 Implement alerting for critical failures and queue backups
+  - [x] 7.5 Add periodic self-diagnostic checks for external dependencies
+- [x] 8.0 Error Handling and Resilience [Refer PRD sections 4.5, 4.14 - Recovery & Retry Logic]
+  - [x] 8.1 Implement comprehensive error categorization and handling strategies
+  - [x] 8.2 Add exponential backoff retry logic with configurable max attempts
+  - [x] 8.3 Create dead letter queue for permanently failed tasks
+  - [x] 8.4 Implement circuit breaker pattern for external subprocess calls
+  - [x] 8.5 Add graceful degradation when external dependencies are unavailable
+- [x] 9.0 Security and Validation [Refer PRD sections 4.9, 4.10 - Security Requirements]
+  - [x] 9.1 Implement comprehensive file content validation and sanitization
+  - [x] 9.2 Add file signature verification to prevent malicious uploads
+  - [x] 9.3 Implement secure temporary file handling with proper cleanup
+  - [x] 9.4 Add rate limiting per admin to prevent abuse
+  - [x] 9.5 Implement audit logging for all admin actions and file operations
+- [ ] 10.0 Testing and Quality Assurance [Deployment Readiness]
+  - [x] 10.1 Create comprehensive unit tests for all core components
+  - [x] 10.2 Implement integration tests for the complete pipeline flow
+  - [x] 10.3 Add end-to-end tests simulating real admin workflows
+  - [x] 10.4 Create load testing for concurrent file processing scenarios
+  - [x] 10.5 Implement chaos testing for crash recovery validation
+  - [x] 10.6 Add regression tests for all critical user stories
+- [x] 11.0 Documentation and Deployment [Deployment Readiness]
+  - [x] 11.1 Create deployment guide with system requirements and dependencies
+  - [x] 11.2 Document all environment variables and configuration options
+  - [x] 11.3 Create operational runbook for common maintenance tasks
+  - [x] 11.4 Implement database backup and restore procedures
+  - [x] 11.5 Create monitoring and alerting setup documentation
+  - [x] 11.6 Add troubleshooting guide for common issues
+- [x] 12.0 Local Bot API Integration and Auto-Move System [Enhanced Architecture]
+  - [x] 12.1 Implement dynamic Local Bot API path detection based on bot token
+  - [x] 12.2 Create BotAPIPathManager for automatic path adaptation when tokens change
+  - [x] 12.3 Integrate auto-move functionality directly into download worker (no external scripts)
+  - [x] 12.4 Implement automatic file routing: TXT → txt/, ZIP/RAR → all/
+  - [x] 12.5 Add built-in monitoring system with 15-second auto-move cycles
+  - [x] 12.6 Update recovery system to handle Local Bot API temp and documents directories
+  - [x] 12.7 Remove external script dependencies and integrate all file movement into bot
+  - [x] 12.8 Implement Local Bot API temp folder usage: documents/ → temp/ → extraction/
+  - [x] 12.9 Add original filename preservation with task ID prefixes for tracking
+  - [x] 12.10 Create comprehensive crash recovery for interrupted file movements
+  - [x] 12.11 Update pipeline coordinator to use integrated auto-move system
+  - [x] 12.12 Add automatic directory structure validation and creation
+  - [x] 12.13 Implement graceful file movement with conflict resolution
+  - [x] 12.14 Update documentation and PRD to reflect new architecture

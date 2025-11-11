@@ -1,0 +1,46 @@
+# Environment files
+.env
+
+# Binaries
+bot
+telegram-archive-bot
+*.exe
+
+# Logs
+logs/*.log
+
+# Database
+data/*.db
+data/*.db-wal
+data/*.db-shm
+
+# Temporary files
+temp/*
+!temp/.gitkeep
+
+# Extraction output directories (preserve structure)
+app/extraction/files/all/*
+!app/extraction/files/all/.gitkeep
+app/extraction/files/pass/*
+!app/extraction/files/pass/.gitkeep
+app/extraction/files/done/*
+!app/extraction/files/done/.gitkeep
+app/extraction/files/errors/*
+!app/extraction/files/errors/.gitkeep
+app/extraction/files/nopass/*
+!app/extraction/files/nopass/.gitkeep
+app/extraction/files/etbanks/*
+!app/extraction/files/etbanks/.gitkeep
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+app/extraction/files/filtered_output.txt
+5773867447:AAGVPLvZ65Dm4KxkCyFaaAngFPPEX5PzpWA/td.binlog
+tqueue.binlog
