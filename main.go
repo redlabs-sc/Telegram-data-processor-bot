@@ -11,7 +11,7 @@ import (
 
 	"telegram-archive-bot/bot"
 	"telegram-archive-bot/monitoring"
-	"telegram-archive-bot/pipeline"
+	"telegram-archive-bot/orchestrator"
 	"telegram-archive-bot/storage"
 	"telegram-archive-bot/utils"
 	"telegram-archive-bot/workers"
@@ -51,27 +51,16 @@ func main() {
 	}
 	
 	// Initialize Telegram bot
-	telegramBot, err := bot.NewTelegramBot(config, logger, db.DB())
+	telegramBot, err := bot.NewTelegramBot(config, logger.Logger, taskStore)
 	if err != nil {
 		logger.Fatalf("Failed to initialize Telegram bot: %v", err)
 	}
-	
-	// Set task store for handlers
-	telegramBot.SetTaskStore(taskStore)
-	
-	// Update download worker with actual bot API and set it
+
+	// Update download worker with actual bot API
 	downloadWorker = workers.NewDownloadWorker(telegramBot.GetBotAPI(), config, logger, taskStore)
-	telegramBot.SetDownloadWorker(downloadWorker)
-	
-	// Initialize pipeline coordinator with graceful degradation
-	coordinator := pipeline.NewPipelineCoordinator(telegramBot.GetBotAPI(), config, logger, taskStore)
-	
-	// Set pipeline coordinator for handlers (critical for file processing)
-	telegramBot.SetPipelineCoordinator(coordinator)
-	
-	// Set workers for handlers to access graceful degradation features
-	telegramBot.SetExtractionWorker(coordinator.GetExtractionWorker())
-	telegramBot.SetConversionWorker(coordinator.GetConversionWorker())
+
+	// Initialize sequential orchestrator (Option 1 architecture)
+	sequentialOrchestrator := orchestrator.NewSequentialOrchestrator(logger.Logger, taskStore, telegramBot)
 	
 	// Initialize health monitor
 	healthMonitor := monitoring.NewHealthMonitor(logger, taskStore)
@@ -93,44 +82,38 @@ func main() {
 	
 	healthMonitor.Start()
 	defer healthMonitor.Stop()
-	
-	// Set health monitor for handlers (for health check command)
-	telegramBot.SetHealthMonitor(healthMonitor)
-	
-	logger.Info("Telegram Archive Bot starting...")
+
+	logger.Info("Telegram Archive Bot starting (Option 1: Sequential Pipeline)...")
 	logger.WithField("admins", config.AdminIDs).Info("Authorized admin IDs loaded")
 	logger.WithField("start_time", healthMonitor.GetStartTime()).Info("Health monitoring started")
 
-	// Start coordinator monitoring with context
+	// Start workers and orchestrator with context
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	
-	// Start pipeline coordinator monitoring
-	go func() {
-		if err := coordinator.Start(ctx); err != nil {
-			logger.WithError(err).Error("Pipeline coordinator stopped with error")
-		}
-	}()
-	
-	// Start auto-move monitoring for downloaded files
-	go func() {
-		ticker := time.NewTicker(15 * time.Second)
-		defer ticker.Stop()
-		
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				// Periodically move downloaded files to extraction directories
-				if err := downloadWorker.MoveDownloadedFilesToExtraction(); err != nil {
-					logger.WithError(err).Debug("Auto-move failed, will retry on next cycle")
-				}
+
+	// Start 3 download workers (Telegram API limit)
+	logger.Info("Starting 3 download workers...")
+	for i := 1; i <= 3; i++ {
+		workerID := i
+		go func() {
+			if err := downloadWorker.StartPolling(ctx, workerID); err != nil && err != context.Canceled {
+				logger.WithField("worker_id", workerID).
+					WithError(err).
+					Error("Download worker stopped with error")
 			}
+		}()
+	}
+
+	// Start sequential orchestrator
+	logger.Info("Starting sequential processing orchestrator...")
+	go func() {
+		if err := sequentialOrchestrator.Start(ctx); err != nil && err != context.Canceled {
+			logger.WithError(err).Error("Sequential orchestrator stopped with error")
 		}
 	}()
-	
+
 	// Start bot in goroutine
+	logger.Info("Starting Telegram bot...")
 	go func() {
 		if err := telegramBot.Start(); err != nil {
 			logger.WithError(err).Error("Bot stopped with error")
@@ -143,20 +126,22 @@ func main() {
 
 	<-sigChan
 	logger.Info("Shutdown signal received, shutting down gracefully...")
-	
-	// Stop pipeline coordinator first
-	coordinator.Stop()
-	
+
+	// Cancel context to stop all workers and orchestrator
+	cancel()
+
+	// Give workers time to finish current tasks (5 seconds)
+	logger.Info("Waiting for workers to finish current tasks...")
+	time.Sleep(5 * time.Second)
+
 	// Shutdown download worker (including secure temp manager)
 	if err := downloadWorker.Shutdown(); err != nil {
 		logger.WithError(err).Error("Error shutting down download worker")
 	}
-	
-	// Cancel context to stop monitoring
-	cancel()
-	
+
+	// Stop Telegram bot
 	telegramBot.Stop()
-	
+
 	logger.Info("Telegram Archive Bot stopped")
 }
 
