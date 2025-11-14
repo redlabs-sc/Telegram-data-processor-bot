@@ -288,3 +288,107 @@ func generateTaskID() string {
 	rand.Read(bytes)
 	return hex.EncodeToString(bytes)
 }
+
+// GetPendingTasks returns up to 'limit' tasks with PENDING status, ordered by creation time
+func (ts *TaskStore) GetPendingTasks(limit int) ([]*models.Task, error) {
+	query := `
+		SELECT id, user_id, chat_id, file_name, file_size, file_type, file_hash,
+		       telegram_file_id, local_api_path, status, error_message, error_category,
+		       error_severity, retry_count, created_at, updated_at, completed_at
+		FROM tasks
+		WHERE status = ?
+		ORDER BY created_at ASC
+		LIMIT ?
+	`
+
+	rows, err := ts.db.DB().Query(query, models.TaskStatusPending, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query pending tasks: %w", err)
+	}
+	defer rows.Close()
+
+	var tasks []*models.Task
+	for rows.Next() {
+		task := &models.Task{}
+		err := rows.Scan(
+			&task.ID, &task.UserID, &task.ChatID, &task.FileName,
+			&task.FileSize, &task.FileType, &task.FileHash,
+			&task.TelegramFileID, &task.LocalAPIPath, &task.Status,
+			&task.ErrorMessage, &task.ErrorCategory, &task.ErrorSeverity,
+			&task.RetryCount, &task.CreatedAt, &task.UpdatedAt, &task.CompletedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan task: %w", err)
+		}
+		tasks = append(tasks, task)
+	}
+
+	return tasks, nil
+}
+
+// MarkDownloading updates task status to DOWNLOADING
+func (ts *TaskStore) MarkDownloading(taskID string) error {
+	return ts.UpdateStatus(taskID, models.TaskStatusDownloading, "")
+}
+
+// MarkDownloaded updates task status to DOWNLOADED
+func (ts *TaskStore) MarkDownloaded(taskID string) error {
+	return ts.UpdateStatus(taskID, models.TaskStatusDownloaded, "")
+}
+
+// GetCompletedUnnotifiedTasks returns completed tasks that haven't been notified
+func (ts *TaskStore) GetCompletedUnnotifiedTasks() ([]*models.Task, error) {
+	query := `
+		SELECT id, user_id, chat_id, file_name, file_size, file_type, file_hash,
+		       telegram_file_id, local_api_path, status, error_message, error_category,
+		       error_severity, retry_count, created_at, updated_at, completed_at
+		FROM tasks
+		WHERE status = ? AND notified = 0
+		ORDER BY completed_at ASC
+	`
+
+	rows, err := ts.db.DB().Query(query, models.TaskStatusCompleted)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query completed unnotified tasks: %w", err)
+	}
+	defer rows.Close()
+
+	var tasks []*models.Task
+	for rows.Next() {
+		task := &models.Task{}
+		err := rows.Scan(
+			&task.ID, &task.UserID, &task.ChatID, &task.FileName,
+			&task.FileSize, &task.FileType, &task.FileHash,
+			&task.TelegramFileID, &task.LocalAPIPath, &task.Status,
+			&task.ErrorMessage, &task.ErrorCategory, &task.ErrorSeverity,
+			&task.RetryCount, &task.CreatedAt, &task.UpdatedAt, &task.CompletedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan task: %w", err)
+		}
+		tasks = append(tasks, task)
+	}
+
+	return tasks, nil
+}
+
+// MarkNotified marks a task as notified
+func (ts *TaskStore) MarkNotified(taskID string) error {
+	query := `UPDATE tasks SET notified = 1 WHERE id = ?`
+	_, err := ts.db.DB().Exec(query, taskID)
+	if err != nil {
+		return fmt.Errorf("failed to mark task as notified: %w", err)
+	}
+	return nil
+}
+
+// GetTaskCountByStatus returns the count of tasks with a specific status
+func (ts *TaskStore) GetTaskCountByStatus(status models.TaskStatus) (int, error) {
+	query := `SELECT COUNT(*) FROM tasks WHERE status = ?`
+	var count int
+	err := ts.db.DB().QueryRow(query, status).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count tasks by status: %w", err)
+	}
+	return count, nil
+}

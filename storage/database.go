@@ -168,6 +168,7 @@ func (d *Database) migrate() error {
 		{36, `CREATE INDEX IF NOT EXISTS idx_admin_audit_username ON admin_audit_log(username)`},
 		{37, `CREATE INDEX IF NOT EXISTS idx_admin_audit_session_id ON admin_audit_log(session_id)`},
 		{38, `ALTER TABLE tasks ADD COLUMN local_api_path TEXT DEFAULT ''`},
+		{39, `ALTER TABLE tasks ADD COLUMN notified INTEGER DEFAULT 0`},
 	}
 
 	// Apply migrations that haven't been applied yet
