@@ -2,7 +2,6 @@
 .env
 
 # Binaries
-bot
 telegram-archive-bot
 *.exe
 

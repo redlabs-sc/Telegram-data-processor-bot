@@ -7,10 +7,11 @@ import (
 type TaskStatus string
 
 const (
-	TaskStatusPending    TaskStatus = "PENDING"
-	TaskStatusDownloaded TaskStatus = "DOWNLOADED"
-	TaskStatusCompleted  TaskStatus = "COMPLETED"
-	TaskStatusFailed     TaskStatus = "FAILED"
+	TaskStatusPending     TaskStatus = "PENDING"
+	TaskStatusDownloading TaskStatus = "DOWNLOADING"
+	TaskStatusDownloaded  TaskStatus = "DOWNLOADED"
+	TaskStatusCompleted   TaskStatus = "COMPLETED"
+	TaskStatusFailed      TaskStatus = "FAILED"
 )
 
 type Task struct {
@@ -28,6 +29,7 @@ type Task struct {
 	ErrorCategory  string    `db:"error_category" json:"error_category,omitempty"`
 	ErrorSeverity  string    `db:"error_severity" json:"error_severity,omitempty"`
 	RetryCount     int       `db:"retry_count" json:"retry_count"`
+	Notified       bool      `db:"notified" json:"notified"`
 	CreatedAt      time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt      time.Time `db:"updated_at" json:"updated_at"`
 	CompletedAt    *time.Time `db:"completed_at" json:"completed_at,omitempty"`

@@ -68,10 +68,18 @@ func NewDownloadWorker(bot *tgbotapi.BotAPI, config *utils.Config, logger *utils
 
 func (dw *DownloadWorker) Process(ctx context.Context, job Job) error {
 	task := job.GetTask()
-	
+
 	dw.logger.WithField("task_id", task.ID).
 		WithField("file_name", task.FileName).
 		Info("Starting file download")
+
+	// Mark task as DOWNLOADING
+	if err := dw.taskStore.MarkDownloading(task.ID); err != nil {
+		dw.logger.WithField("task_id", task.ID).
+			WithError(err).
+			Error("Failed to mark task as DOWNLOADING")
+		return fmt.Errorf("failed to mark task as downloading: %w", err)
+	}
 
 	// Create context with timeout
 	downloadCtx, cancel := context.WithTimeout(ctx, dw.timeout)
@@ -118,13 +126,149 @@ func (dw *DownloadWorker) Process(ctx context.Context, job Job) error {
 		WithField("file_name", task.FileName).
 		Info("File download completed successfully")
 
-	// Update task status to DOWNLOADED and store the full task data
-	task.Status = models.TaskStatusDownloaded
-	if err := dw.taskStore.UpdateTask(task); err != nil {
+	// Mark task as DOWNLOADED using new method
+	if err := dw.taskStore.MarkDownloaded(task.ID); err != nil {
 		dw.logger.WithField("task_id", task.ID).
 			WithError(err).
-			Error("Failed to update task to DOWNLOADED")
-		return fmt.Errorf("failed to update task: %w", err)
+			Error("Failed to mark task as DOWNLOADED")
+		return fmt.Errorf("failed to mark task as downloaded: %w", err)
+	}
+
+	return nil
+}
+
+// StartPolling continuously polls for PENDING tasks and processes them
+// This is used for Option 1 architecture where download workers poll the queue
+// Up to 3 concurrent downloads are supported (Telegram API limit)
+func (dw *DownloadWorker) StartPolling(ctx context.Context, workerID int) error {
+	dw.logger.WithField("worker_id", workerID).Info("Download worker started polling")
+
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			dw.logger.WithField("worker_id", workerID).Info("Download worker stopped (context cancelled)")
+			return ctx.Err()
+
+		case <-ticker.C:
+			// Get one PENDING task (each worker gets one at a time)
+			tasks, err := dw.taskStore.GetPendingTasks(1)
+			if err != nil {
+				dw.logger.WithField("worker_id", workerID).
+					WithError(err).
+					Error("Failed to get pending tasks")
+				continue
+			}
+
+			if len(tasks) == 0 {
+				// No tasks to process, continue polling
+				continue
+			}
+
+			task := tasks[0]
+
+			dw.logger.WithField("worker_id", workerID).
+				WithField("task_id", task.ID).
+				WithField("file_name", task.FileName).
+				Info("Picked up task for download")
+
+			// Process the task
+			if err := dw.processTask(ctx, task); err != nil {
+				dw.logger.WithField("worker_id", workerID).
+					WithField("task_id", task.ID).
+					WithError(err).
+					Error("Failed to process task")
+
+				// Mark task as FAILED
+				task.Status = models.TaskStatusFailed
+				task.ErrorMessage = err.Error()
+				if updateErr := dw.taskStore.UpdateTask(task); updateErr != nil {
+					dw.logger.WithField("task_id", task.ID).
+						WithError(updateErr).
+						Error("Failed to update task to FAILED")
+				}
+				continue
+			}
+
+			// Move file to extraction directory after download
+			if err := dw.moveTaskFileToExtraction(task); err != nil {
+				dw.logger.WithField("worker_id", workerID).
+					WithField("task_id", task.ID).
+					WithError(err).
+					Error("Failed to move file to extraction directory")
+				// Don't mark as failed, file is downloaded successfully
+			}
+		}
+	}
+}
+
+// processTask handles a single task download with status transitions
+func (dw *DownloadWorker) processTask(ctx context.Context, task *models.Task) error {
+	dw.logger.WithField("task_id", task.ID).
+		WithField("file_name", task.FileName).
+		Info("Starting file download")
+
+	// Mark task as DOWNLOADING
+	if err := dw.taskStore.MarkDownloading(task.ID); err != nil {
+		dw.logger.WithField("task_id", task.ID).
+			WithError(err).
+			Error("Failed to mark task as DOWNLOADING")
+		return fmt.Errorf("failed to mark task as downloading: %w", err)
+	}
+
+	// Create context with timeout
+	downloadCtx, cancel := context.WithTimeout(ctx, dw.timeout)
+	defer cancel()
+
+	// Download file with retries
+	var downloadErr error
+	for attempt := 1; attempt <= dw.maxRetries; attempt++ {
+		dw.logger.WithField("task_id", task.ID).
+			WithField("attempt", attempt).
+			Debug("Attempting file download")
+
+		if err := dw.downloadFile(downloadCtx, task); err != nil {
+			downloadErr = err
+			dw.logger.WithField("task_id", task.ID).
+				WithField("attempt", attempt).
+				WithError(err).
+				Warn("Download attempt failed")
+
+			if attempt < dw.maxRetries {
+				// Exponential backoff
+				backoff := time.Duration(attempt) * time.Second * 2
+				select {
+				case <-downloadCtx.Done():
+					return downloadCtx.Err()
+				case <-time.After(backoff):
+					continue
+				}
+			}
+		} else {
+			downloadErr = nil
+			break
+		}
+	}
+
+	if downloadErr != nil {
+		dw.logger.WithField("task_id", task.ID).
+			WithError(downloadErr).
+			Error("All download attempts failed")
+		return fmt.Errorf("download failed after %d attempts: %w", dw.maxRetries, downloadErr)
+	}
+
+	dw.logger.WithField("task_id", task.ID).
+		WithField("file_name", task.FileName).
+		Info("File download completed successfully")
+
+	// Mark task as DOWNLOADED
+	if err := dw.taskStore.MarkDownloaded(task.ID); err != nil {
+		dw.logger.WithField("task_id", task.ID).
+			WithError(err).
+			Error("Failed to mark task as DOWNLOADED")
+		return fmt.Errorf("failed to mark task as downloaded: %w", err)
 	}
 
 	return nil
@@ -193,14 +337,53 @@ func (dw *DownloadWorker) downloadFile(ctx context.Context, task *models.Task) e
 	if err != nil {
 		return fmt.Errorf("failed to get Local Bot API documents path: %w", err)
 	}
-	
+
 	// Extract just the filename from the full path since Local Bot API stores files with simplified names
 	sourceFileName := filepath.Base(localFilePath)
 	sourceFilePath := filepath.Join(documentsPath, sourceFileName)
-	
+
 	// Check if file exists in Local Bot API documents directory
+	// If not, try to find the most recent file (Local Bot API numbering issue)
 	if _, err := os.Stat(sourceFilePath); os.IsNotExist(err) {
-		return fmt.Errorf("file not found in Local Bot API Server documents directory: %s", sourceFilePath)
+		dw.logger.WithField("expected_file", sourceFilePath).
+			Warn("Expected file not found, searching for most recent file in documents directory")
+
+		// List all files in documents directory
+		entries, readErr := os.ReadDir(documentsPath)
+		if readErr != nil {
+			return fmt.Errorf("failed to read documents directory: %w", readErr)
+		}
+
+		// Find the most recent file
+		var mostRecentFile string
+		var mostRecentTime time.Time
+
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue
+			}
+
+			filePath := filepath.Join(documentsPath, entry.Name())
+			fileInfo, statErr := os.Stat(filePath)
+			if statErr != nil {
+				continue
+			}
+
+			if mostRecentFile == "" || fileInfo.ModTime().After(mostRecentTime) {
+				mostRecentFile = filePath
+				mostRecentTime = fileInfo.ModTime()
+			}
+		}
+
+		if mostRecentFile == "" {
+			return fmt.Errorf("no files found in Local Bot API Server documents directory: %s", documentsPath)
+		}
+
+		dw.logger.WithField("found_file", mostRecentFile).
+			WithField("modification_time", mostRecentTime).
+			Info("Using most recent file from documents directory")
+
+		sourceFilePath = mostRecentFile
 	}
 	
 	// Get file info for size verification and hash calculation

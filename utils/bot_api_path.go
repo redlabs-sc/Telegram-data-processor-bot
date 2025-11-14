@@ -97,9 +97,31 @@ func (pm *BotAPIPathManager) GetTempPath() (string, error) {
 
 // EnsureDirectories creates the necessary directories if they don't exist
 func (pm *BotAPIPathManager) EnsureDirectories() error {
+	// Try to detect existing path first
 	basePath, err := pm.DetectLocalBotAPIPath()
 	if err != nil {
-		return err
+		// If detection failed, create the directory structure
+		pm.logger.Warn("Local Bot API directory not found, creating it...")
+
+		botToken := pm.config.TelegramBotToken
+		if botToken == "" {
+			return fmt.Errorf("bot token not found in configuration")
+		}
+
+		currentDir, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("failed to get current directory: %w", err)
+		}
+
+		basePath = filepath.Join(currentDir, botToken)
+		pm.basePath = basePath
+
+		pm.logger.WithField("base_path", basePath).Info("Creating Local Bot API directory structure")
+	}
+
+	// Ensure base directory exists
+	if err := os.MkdirAll(basePath, 0755); err != nil {
+		return fmt.Errorf("failed to create base directory: %w", err)
 	}
 
 	// Ensure temp directory exists
