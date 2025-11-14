@@ -337,14 +337,53 @@ func (dw *DownloadWorker) downloadFile(ctx context.Context, task *models.Task) e
 	if err != nil {
 		return fmt.Errorf("failed to get Local Bot API documents path: %w", err)
 	}
-	
+
 	// Extract just the filename from the full path since Local Bot API stores files with simplified names
 	sourceFileName := filepath.Base(localFilePath)
 	sourceFilePath := filepath.Join(documentsPath, sourceFileName)
-	
+
 	// Check if file exists in Local Bot API documents directory
+	// If not, try to find the most recent file (Local Bot API numbering issue)
 	if _, err := os.Stat(sourceFilePath); os.IsNotExist(err) {
-		return fmt.Errorf("file not found in Local Bot API Server documents directory: %s", sourceFilePath)
+		dw.logger.WithField("expected_file", sourceFilePath).
+			Warn("Expected file not found, searching for most recent file in documents directory")
+
+		// List all files in documents directory
+		entries, readErr := os.ReadDir(documentsPath)
+		if readErr != nil {
+			return fmt.Errorf("failed to read documents directory: %w", readErr)
+		}
+
+		// Find the most recent file
+		var mostRecentFile string
+		var mostRecentTime time.Time
+
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue
+			}
+
+			filePath := filepath.Join(documentsPath, entry.Name())
+			fileInfo, statErr := os.Stat(filePath)
+			if statErr != nil {
+				continue
+			}
+
+			if mostRecentFile == "" || fileInfo.ModTime().After(mostRecentTime) {
+				mostRecentFile = filePath
+				mostRecentTime = fileInfo.ModTime()
+			}
+		}
+
+		if mostRecentFile == "" {
+			return fmt.Errorf("no files found in Local Bot API Server documents directory: %s", documentsPath)
+		}
+
+		dw.logger.WithField("found_file", mostRecentFile).
+			WithField("modification_time", mostRecentTime).
+			Info("Using most recent file from documents directory")
+
+		sourceFilePath = mostRecentFile
 	}
 	
 	// Get file info for size verification and hash calculation
