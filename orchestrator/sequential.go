@@ -148,6 +148,15 @@ func (so *SequentialOrchestrator) runConversionStage(ctx context.Context) error 
 
 	startTime := time.Now()
 
+	// Set environment variables for convert.go
+	os.Setenv("CONVERT_INPUT_DIR", "app/extraction/files/pass")
+	os.Setenv("CONVERT_OUTPUT_FILE", "app/extraction/files/txt/converted.txt")
+
+	so.logger.WithFields(logrus.Fields{
+		"input_dir":   "app/extraction/files/pass",
+		"output_file": "app/extraction/files/txt/converted.txt",
+	}).Debug("Set conversion environment variables")
+
 	// Run convert.go's main function (BLOCKS until complete)
 	// This processes all files in app/extraction/files/pass/
 	err = convert.ConvertTextFiles()
