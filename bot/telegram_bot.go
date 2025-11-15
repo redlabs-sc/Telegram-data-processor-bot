@@ -85,3 +85,23 @@ func (tb *TelegramBot) SendMessage(chatID int64, text string) error {
 	_, err := tb.bot.Send(msg)
 	return err
 }
+
+// SendDocument sends a file document to the specified chat ID with a caption
+func (tb *TelegramBot) SendDocument(chatID int64, filePath string, caption string) error {
+	doc := tgbotapi.NewDocument(chatID, tgbotapi.FilePath(filePath))
+	doc.Caption = caption
+	doc.ParseMode = "Markdown"
+
+	_, err := tb.bot.Send(doc)
+	if err != nil {
+		return fmt.Errorf("failed to send document %s: %w", filePath, err)
+	}
+
+	tb.logger.WithFields(logrus.Fields{
+		"chat_id":  chatID,
+		"file":     filePath,
+		"caption":  caption,
+	}).Debug("Document sent successfully")
+
+	return nil
+}
