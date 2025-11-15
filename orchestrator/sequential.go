@@ -14,12 +14,14 @@ import (
 	"telegram-archive-bot/bot"
 	"telegram-archive-bot/models"
 	"telegram-archive-bot/storage"
+	"telegram-archive-bot/utils"
 )
 
 // SequentialOrchestrator manages the sequential processing pipeline
 // Extract → Convert → Store (one stage at a time)
 type SequentialOrchestrator struct {
 	logger       *logrus.Logger
+	config       *utils.Config
 	taskStore    *storage.TaskStore
 	telegramBot  *bot.TelegramBot
 	pollInterval time.Duration
@@ -28,11 +30,13 @@ type SequentialOrchestrator struct {
 // NewSequentialOrchestrator creates a new sequential processing orchestrator
 func NewSequentialOrchestrator(
 	logger *logrus.Logger,
+	config *utils.Config,
 	taskStore *storage.TaskStore,
 	telegramBot *bot.TelegramBot,
 ) *SequentialOrchestrator {
 	return &SequentialOrchestrator{
 		logger:       logger,
+		config:       config,
 		taskStore:    taskStore,
 		telegramBot:  telegramBot,
 		pollInterval: 10 * time.Second, // Check every 10 seconds
@@ -148,6 +152,15 @@ func (so *SequentialOrchestrator) runConversionStage(ctx context.Context) error 
 
 	startTime := time.Now()
 
+	// Set environment variables for convert.go
+	os.Setenv("CONVERT_INPUT_DIR", "app/extraction/files/pass")
+	os.Setenv("CONVERT_OUTPUT_FILE", "app/extraction/files/txt/converted.txt")
+
+	so.logger.WithFields(logrus.Fields{
+		"input_dir":   "app/extraction/files/pass",
+		"output_file": "app/extraction/files/txt/converted.txt",
+	}).Debug("Set conversion environment variables")
+
 	// Run convert.go's main function (BLOCKS until complete)
 	// This processes all files in app/extraction/files/pass/
 	err = convert.ConvertTextFiles()
@@ -190,11 +203,19 @@ func (so *SequentialOrchestrator) runStoreStage(ctx context.Context) error {
 
 	startTime := time.Now()
 
-	// Create store service with logger function
+	// Create store service with logger function and bot integration
 	logFunc := func(format string, args ...interface{}) {
 		so.logger.Infof(format, args...)
 	}
-	storeService := extraction.NewStoreService(logFunc)
+
+	// Get first admin ID for bot notifications
+	var adminChatID int64
+	if len(so.config.AdminIDs) > 0 {
+		adminChatID = so.config.AdminIDs[0]
+	}
+
+	// Create store service with bot integration for automatic file sending
+	storeService := extraction.NewStoreServiceWithBot(logFunc, so.telegramBot, adminChatID)
 	defer storeService.Close()
 
 	// Create context with timeout (2 hours for large files)

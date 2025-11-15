@@ -60,7 +60,7 @@ func main() {
 	downloadWorker = workers.NewDownloadWorker(telegramBot.GetBotAPI(), config, logger, taskStore)
 
 	// Initialize sequential orchestrator (Option 1 architecture)
-	sequentialOrchestrator := orchestrator.NewSequentialOrchestrator(logger.Logger, taskStore, telegramBot)
+	sequentialOrchestrator := orchestrator.NewSequentialOrchestrator(logger.Logger, config, taskStore, telegramBot)
 	
 	// Initialize health monitor
 	healthMonitor := monitoring.NewHealthMonitor(logger, taskStore)
