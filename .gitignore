@@ -3,6 +3,7 @@
 
 # Binaries
 telegram-archive-bot
+telegram-bot
 *.exe
 
 # Logs
